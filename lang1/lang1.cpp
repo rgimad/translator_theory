@@ -43,7 +43,9 @@ enum class TokenType {
 	GREATER_EQUAL,
 	LESS,
 	LESS_EQUAL,
-	ENDOFFILE
+	ENDOFFILE,
+
+	EMPTY
 };
 
 enum class AstNodeType {
@@ -72,7 +74,7 @@ struct Token {
 	TokenType type;
 	std::variant<int, std::string> value;
 
-	Token() { }
+	Token() : type(TokenType::EMPTY) { }
 	Token(TokenType type, int val) : type(type), value(val) {}
 	Token(TokenType type, std::string& val) : type(type), value(val) {}
 	Token(const Token& t) {
@@ -90,19 +92,101 @@ struct AstNode {
 
 	void push_child(AstNode* child) { children.push_back(child); }
 
-	static void showAst(AstNode *root, int level = 0) {
+	AstNode(AstNodeType type) : type(type), unary_minus(false) {}
+	~AstNode() {};
+};
+
+class AST {
+private:
+	static std::map<std::string, int> symtab;
+
+	static int _internal_run_ast(AstNode* root) {
+		// std::cout << "_internal_run_ast() " << magic_enum::enum_name(root->type) << "\n";
+		if (root->type == AstNodeType::PROGRAM) {
+			for (AstNode* child : root->children) {
+				_internal_run_ast(child);
+			}
+		}
+		else if (root->type == AstNodeType::COMPOUND_ST) {
+			for (AstNode* child : root->children) {
+				_internal_run_ast(child);
+			}
+			// TODO clear variables that was local for this scope
+		}
+		else if (root->type == AstNodeType::CONDITION) {
+			if (_internal_run_ast(root->children[0])) { // if condition is true
+				_internal_run_ast(root->children[1]);
+			}
+			else { // if condition is false
+				if (root->children.size() > 2) { // if there is ELSE branch run it
+					_internal_run_ast(root->children[2]);
+				}
+			}
+		}
+		else if (root->type == AstNodeType::ASSIGN) {
+			symtab[std::get<std::string>(root->children[0]->value)] = _internal_run_ast(root->children[1]);
+			// std::cout << "####" << std::get<std::string>(root->children[0]->value) << "\n";
+		}
+		else if (root->type == AstNodeType::VAR) {
+			std::string varname = std::get<std::string>(root->value);
+			if (symtab.find(varname) != symtab.end()) {
+				return symtab[std::get<std::string>(root->value)];
+			}
+			else {
+				throw std::string("Runtime error: variable " + varname + "undefined");
+			}
+		}
+		else if (root->type == AstNodeType::NUMBER) {
+			return std::get<int>(root->value);
+		}
+		else if (root->type == AstNodeType::ADD) {
+			return _internal_run_ast(root->children[0]) + _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::MULTIPLY) {
+			return _internal_run_ast(root->children[0]) * _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::DIVIDE) {
+			return _internal_run_ast(root->children[0]) / _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::EQUAL) {
+			return _internal_run_ast(root->children[0]) == _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::NOT_EQUAL) {
+			return _internal_run_ast(root->children[0]) != _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::GREATER) {
+			return _internal_run_ast(root->children[0]) > _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::GREATER_EQUAL) {
+			return _internal_run_ast(root->children[0]) >= _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::LESS) {
+			return _internal_run_ast(root->children[0]) < _internal_run_ast(root->children[1]);
+		}
+		else if (root->type == AstNodeType::LESS_EQUAL) {
+			return _internal_run_ast(root->children[0]) <= _internal_run_ast(root->children[1]);
+		}
+		return 0;
+	}
+
+public:
+	static void show_ast(AstNode* root, int level = 0) {
 		for (int i = 0; i < level; i++) {
 			std::cout << "    ";
 		}
 		std::cout << magic_enum::enum_name(root->type) << "\n";
-		for (AstNode *child : root->children) {
-			showAst(child, level + 1);
+		for (AstNode* child : root->children) {
+			show_ast(child, level + 1);
 		}
 	}
 
-	AstNode(AstNodeType type) : type(type), unary_minus(false) {}
-	~AstNode() {};
+	static std::map<std::string, int> run_ast(AstNode *root) {
+		_internal_run_ast(root);
+		return std::move(symtab);
+	}
 };
+
+std::map<std::string, int> AST::symtab;
 
 std::string token_to_string(const Token& token) {
 	std::string str;
@@ -368,7 +452,8 @@ public:
 std::map<std::string, int> eval(const std::string& program) {
 	Parser parser(std::move(tokenize(program)));
 	AstNode* root = parser.parse_program();
-	return { {"aboba", 1337} };
+	return std::move(AST::run_ast(root));
+	// return { {"aboba", 1337} };
 }
 
 /*
@@ -395,7 +480,7 @@ int main() {
 	auto tokens = tokenize(std::string(
 		"myvar1=123+7*9;"
 		"ans=0;"
-		"if(myvar1==63+123)"
+		"if(myvar1==1170)"
 		"ans=1;"
 		"if (1==1) {if (2>1) a = 7; else b = 9;}"
 	));
@@ -406,9 +491,14 @@ int main() {
 	Parser parser(std::move(tokens));
 	try {
 		AstNode* root = parser.parse_program();
-		// std::cout << magic_enum::enum_name(root->children[0]->children[0]->type);
+		// // std::cout << magic_enum::enum_name(root->children[0]->children[0]->type);
 		std::cout << "AST:\n";
-		AstNode::showAst(root);
+		AST::show_ast(root);
+		auto variable_state = std::move(AST::run_ast(root));
+		std::cout << "Variable state:\n";
+		for (const auto& item : variable_state) {
+			std::cout << item.first << " = " << item.second << "\n";
+		}
 	}
 	catch (const std::string &s) {
 		std::cout << s;
