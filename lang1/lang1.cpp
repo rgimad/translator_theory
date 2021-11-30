@@ -51,9 +51,21 @@ enum class AstNodeType {
 	COMPOUND_ST,
 	CONDITION,
 	ASSIGN,
-	BINOP,
 	VAR,
-	NUMBER
+	NUMBER,
+
+	ADD,
+	SUBTRACT,
+	MULTIPLY,
+	DIVIDE,
+	EQUAL,
+	NOT_EQUAL,
+	GREATER,
+	GREATER_EQUAL,
+	LESS,
+	LESS_EQUAL,
+
+	INVALID
 };
 
 struct Token {
@@ -210,18 +222,21 @@ std::vector<Token> tokenize(const std::string& text) {
 	return tokens;
 }
 
-bool token_is_op(const Token &t) {
-	return (t.type == TokenType::PLUS ||
-		t.type == TokenType::MINUS ||
-		t.type == TokenType::STAR ||
-		t.type == TokenType::SLASH ||
-		t.type == TokenType::EQUAL ||
-		t.type == TokenType::NOT_EQUAL ||
-		t.type == TokenType::GREATER ||
-		t.type == TokenType::GREATER_EQUAL ||
-		t.type == TokenType::LESS ||
-		t.type == TokenType::LESS_EQUAL
-	);
+// Convert binary operation token type to corresponding ast node type
+// return AstNodeType::INVALID if token type is not a binary operation
+AstNodeType token_binop_to_ast_node_type(const Token &t) {
+	AstNodeType ast_node_type = AstNodeType::INVALID;
+	if (t.type == TokenType::PLUS) ast_node_type = AstNodeType::ADD;
+	else if (t.type == TokenType::MINUS) ast_node_type = AstNodeType::SUBTRACT;
+	else if (t.type == TokenType::STAR) ast_node_type = AstNodeType::MULTIPLY;
+	else if (t.type == TokenType::SLASH) ast_node_type = AstNodeType::DIVIDE;
+	else if (t.type == TokenType::EQUAL) ast_node_type = AstNodeType::EQUAL;
+	else if (t.type == TokenType::NOT_EQUAL) ast_node_type = AstNodeType::NOT_EQUAL;
+	else if (t.type == TokenType::GREATER) ast_node_type = AstNodeType::GREATER;
+	else if (t.type == TokenType::GREATER_EQUAL) ast_node_type = AstNodeType::GREATER_EQUAL;
+	else if (t.type == TokenType::LESS) ast_node_type = AstNodeType::LESS;
+	else if (t.type == TokenType::LESS_EQUAL) ast_node_type = AstNodeType::LESS_EQUAL;
+	return ast_node_type;
 }
 
 class Parser {
@@ -266,17 +281,16 @@ public:
 		if (operand1 == nullptr) {
 			throw std::string("Syntax error: expected expression\n");
 		}
-		if (token_is_op(tokens[pos])) {
-			AstNode* operand; int op;
-			while (token_is_op(tokens[pos])) {
-				op = (int)tokens[pos].type;
+		AstNodeType binop_type;
+		if ((binop_type = token_binop_to_ast_node_type(tokens[pos])) != AstNodeType::INVALID) {
+			AstNode* operand;
+			while ((binop_type = token_binop_to_ast_node_type(tokens[pos])) != AstNodeType::INVALID) {
 				pos++;
 				operand = parse_operand();
 				if (operand == nullptr) {
 					throw std::string("Syntax error: expected operand\n");
 				}
-				AstNode* binop = new AstNode(AstNodeType::BINOP);
-				binop->value = op;
+				AstNode* binop = new AstNode(binop_type);
 				binop->push_child(operand1);
 				binop->push_child(operand);
 				operand1 = binop;
